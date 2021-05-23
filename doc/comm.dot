@@ -1,0 +1,17 @@
+digraph communication {
+    { rank=min; slave1; slave2; slave3; slave4; }
+    master -> slave1;
+    master -> slave2;
+    master -> slave3;
+    master -> slave4;
+    slave1 -> master;
+    slave1 -> slave2;
+    slave2 -> master;
+    slave2 -> slave1;
+    slave2 -> slave3;
+    slave3 -> master;
+    slave3 -> slave2;
+    slave3 -> slave4;
+    slave4 -> master;
+    slave4 -> slave3;
+}

@@ -1,0 +1,233 @@
+#include <api.h>
+#include <stdlib.h>
+
+#include "common.h"
+
+int L[VECTOR_SIZE], R[VECTOR_SIZE];
+
+void merge(int *arr, int l, int m, int r) {
+    int n1 = m - l + 1;
+    int n2 = r - m;
+ 
+    for (int i = 0; i < n1; ++i)
+        L[i] = arr[l + i];
+    for (int j = 0; j < n2; ++j)
+        R[j] = arr[m + 1 + j];
+ 
+    int i = 0, j = 0, k = l;
+    while (i < n1 && j < n2) {
+        if (L[i] <= R[j]) {
+            arr[k++] = L[i++];
+        }
+        else {
+            arr[k++] = R[j++];
+        }
+    }
+ 
+    while (i < n1) {
+        arr[k++] = L[i++];
+    }
+ 
+    while (j < n2) {
+        arr[k++] = R[j++];
+    }
+}
+
+void merge_sort(int *arr, int l, int r) {
+    if (l < r) {
+        int m = l + (r - l) / 2;
+ 
+        merge_sort(arr, m + 1, r);
+        merge_sort(arr, l, m);
+ 
+        merge(arr, l, m, r);
+
+        #if DEBUG
+            Echo("Sorted range...");
+            Echo(itoa(l));
+            Echo(itoa(r));
+        #endif
+    }
+}
+
+void sort(int* vector, size_t size) {
+    merge_sort(vector,0,size-1);
+}
+
+int main(){
+    int vector[VECTOR_SIZE], lbv[VECTOR_SIZE], ubv[VECTOR_SIZE];
+    int vector_sz = 0, lbv_sz = 0, ubv_sz = 0;
+
+    Message msg;
+
+    //receive ID
+    Receive(&msg, master);
+    const unsigned int slave_ID = msg.msg[(int)1];
+    const int lower_bound = slave_ID*(MAX_NUMBER/SLAVES_C);
+    const int upper_bound = lower_bound+(MAX_NUMBER/SLAVES_C)-1;
+
+    //received cut size
+    unsigned int CUT_SIZE = msg.msg[(int)0];
+
+    Echo("Slave number | Cut size");
+    Echo(itoa(slave_ID));
+    Echo(itoa(CUT_SIZE));
+
+    int messages_cut = CUT_SIZE/MSG_SIZE;
+    if (messages_cut*MSG_SIZE!=CUT_SIZE) messages_cut+=1;
+
+    for (int p = 0; p < messages_cut; ++p) {
+        Receive(&msg, master);
+
+        for(int i=0; i<msg.length; ++i){
+            if (msg.msg[i]<lower_bound) {
+                lbv[lbv_sz++] = msg.msg[i];
+            }
+            else if (msg.msg[i]>upper_bound) {
+                ubv[ubv_sz++] = msg.msg[i];
+            }
+            else {
+                vector[vector_sz++] = msg.msg[i];
+            }
+        }
+
+        Echo("Message received from master - up to: ");
+        Echo(itoa(p*MSG_SIZE+msg.length));
+    }
+
+    const unsigned int LEFT_NEIGHBOR = slave_ID==0 ? 0 : SLAVES[slave_ID-1], RIGHT_NEIGHBOR = slave_ID==SLAVES_C-1 ? 0 : SLAVES[slave_ID+1];
+    int left_pending = slave_ID==0 ? 0 : 1, right_pending = slave_ID==SLAVES_C-1 ? 0 : 1;
+    char sig_left = slave_ID==0 ? 0 : 1, sig_right = slave_ID==SLAVES_C-1 ? 0 : 1;
+    
+    while (lbv_sz || ubv_sz || left_pending || right_pending || sig_left || sig_right) {
+        #if DEBUG
+            Echo("round:");
+            Echo(itoa(lbv_sz));
+            Echo(itoa(ubv_sz));
+            Echo(itoa(left_pending));
+            Echo(itoa(right_pending));
+            Echo(itoa(sig_left));
+            Echo(itoa(sig_right));
+        #endif
+
+        if (slave_ID!=0) {
+            #if DEBUG
+                Echo("Communicate with left neighbor");
+            #endif
+            //send lower bound and completeness to left neighbor
+            if (sig_left) {
+                #if DEBUG
+                    Echo("Send lbv to left neighbor");
+                #endif
+                send_cuts(lbv, lbv_sz, LEFT_NEIGHBOR, right_pending);
+                #if DEBUG
+                    Echo("Sent lbv to left neighbor");
+                #endif
+                if (!right_pending) sig_left=0;
+            }
+
+            if (left_pending) {
+                //receive upper bound and completeness from left neighbor
+                #if DEBUG
+                    Echo("Awaiting left neighbor's message");
+                #endif
+
+                Receive(&msg, LEFT_NEIGHBOR);
+
+                #if DEBUG
+                    Echo("Left sent:");
+                    Echo(itoa(msg.msg[(int)0]));
+                    Echo(itoa(msg.msg[(int)1]));
+                #endif
+
+                left_pending = msg.msg[(int)1];
+                messages_cut = msg.msg[(int)0]/MSG_SIZE;
+
+                if (messages_cut*MSG_SIZE!=msg.msg[(int)0]) messages_cut+=1;
+
+                for (int p = 0; p < messages_cut; ++p) {
+                    Receive(&msg, LEFT_NEIGHBOR);
+
+                    for(int i=0; i<msg.length; ++i){
+                        if (msg.msg[i]>upper_bound) {
+                            ubv[ubv_sz++] = msg.msg[i];
+                        }
+                        else {
+                            vector[vector_sz++] = msg.msg[i];
+                        }
+                    }
+                }
+            }
+
+            lbv_sz = 0;
+        }
+
+        if (slave_ID!=SLAVES_C-1) {
+            #if DEBUG
+                Echo("Communicate with right neighbor");
+            #endif
+
+            if (right_pending) {
+                //receive lower bound and completeness from right neighbor
+                #if DEBUG
+                    Echo("Awaiting right neighbor's message");
+                #endif
+
+                Receive(&msg, RIGHT_NEIGHBOR);
+                #if DEBUG
+                    Echo("Right sent:");
+                    Echo(itoa((int)msg.msg[(int)0]));
+                    Echo(itoa((int)msg.msg[(int)1]));
+                #endif
+
+                right_pending = msg.msg[(int)1];
+
+                messages_cut = msg.msg[(int)0]/MSG_SIZE;
+                if (messages_cut*MSG_SIZE!=msg.msg[(int)0]) messages_cut+=1;
+
+                for (int p = 0; p < messages_cut; ++p) {
+                    Receive(&msg, RIGHT_NEIGHBOR);
+
+                    for (int i=0; i<msg.length; ++i){
+                        if (msg.msg[i]<lower_bound) {
+                            lbv[lbv_sz++] = msg.msg[i];
+                        }
+                        else {
+                            vector[vector_sz++] = msg.msg[i];
+                        }
+                    }
+                }
+            }
+            
+            //send upper bound and completeness to right neighbor
+            if (sig_right) {
+                #if DEBUG
+                    Echo("Send ubv to right neighbor");
+                #endif
+                send_cuts(ubv, ubv_sz, RIGHT_NEIGHBOR, left_pending);
+                #if DEBUG
+                    Echo("Sent ubv to right neighbor");
+                #endif
+                if (!left_pending) sig_right=0;
+            }
+
+            ubv_sz = 0;
+        }
+    }
+
+    Echo("Final size:");
+    Echo(itoa(vector_sz));
+
+    sort(vector, vector_sz);
+
+    Echo("Vector sorted");
+    #if DEBUG
+        for(int i=0; i<vector_sz; ++i){
+            Echo(itoa(vector[i]));
+        }
+    #endif
+
+    send_cuts(vector, vector_sz, master, 0);
+
+    exit();
+}

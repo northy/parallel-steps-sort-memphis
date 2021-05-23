@@ -1,0 +1,41 @@
+#pragma once
+
+#include "config.h"
+
+int myrand(void);
+int min(int a, int b);
+
+void send_cuts(int* items, int size, unsigned int dest, int extra_info);
+
+static unsigned long next = 1;
+
+int myrand(void) {
+    next = next * 1103515245 + 12345;
+    return((unsigned)(next/65536) % MAX_NUMBER);
+}
+
+int min(int a, int b) {
+    return a<b ? a : b;
+}
+
+void send_cuts(int* items, int size, unsigned int dest, int extra_info) {
+    Message msg;
+
+    msg.length = 2;
+    msg.msg[(int)0] = size;
+    msg.msg[(int)1] = extra_info;
+    Send(&msg, dest);
+
+    int messages_cut = size/MSG_SIZE;
+    if (messages_cut*MSG_SIZE!=size) messages_cut+=1;
+
+    for (int p = 0; p < messages_cut; ++p) {
+        msg.length = min(size-p*MSG_SIZE, MSG_SIZE);
+
+        for (int i = 0; i < msg.length; i++) {
+            msg.msg[i] = items[p*MSG_SIZE+i];
+        }
+
+        Send(&msg, dest);
+    }
+}

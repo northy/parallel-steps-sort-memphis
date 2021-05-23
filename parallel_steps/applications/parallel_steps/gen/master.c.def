@@ -1,0 +1,52 @@
+#include <api.h>
+#include <stdlib.h>
+
+#include "common.h"
+
+const unsigned int CUT_SIZE = VECTOR_SIZE/SLAVES_C;
+
+int main() {
+    //create the vector
+    int vector[VECTOR_SIZE], vector_sz = 0;
+
+    for (int i=0; i<VECTOR_SIZE; ++i) {
+        vector[i] = myrand();
+    }
+
+    Message msg;
+
+    for (int s=0; s<SLAVES_C; ++s) {
+        Echo("Sending vector cut to slave: ");
+        Echo(itoa(s));
+
+        send_cuts(&vector[s*CUT_SIZE], CUT_SIZE, SLAVES[s], s);
+    }
+
+    for (int s=0; s<SLAVES_C; ++s) {
+        Echo("Receiving vector cut from slave: ");
+        Echo(itoa(s));
+
+        Receive(&msg, SLAVES[s]);
+        int messages_cut = msg.msg[(int)0]/MSG_SIZE;
+        if (messages_cut*MSG_SIZE!=CUT_SIZE) messages_cut+=1;
+
+        for (int p = 0; p < messages_cut; ++p) {
+            Receive(&msg, SLAVES[s]);
+
+            for (int i=0; i<msg.length; i++){
+                vector[vector_sz++] = msg.msg[i];
+            }
+        }
+    }
+
+    Echo("Total size:");
+    Echo(itoa(vector_sz));
+
+    #if DEBUG
+        for(int i=0; i<vector_sz; i++){
+            Echo(itoa(vector[i]));
+        }
+    #endif
+    
+    exit();
+}
